@@ -7,10 +7,11 @@ function runInstall {
   sudo apt update
   sudo apt install -y curl git jq lz4 build-essential
   sudo rm -rf /usr/local/go
-  sudo curl -Ls https://go.dev/dl/go1.19.linux-amd64.tar.gz | tar -C /usr/local -xz
+  sudo curl -Ls https://go.dev/dl/go1.19.linux-amd64.tar.gz | sudo tar -C /usr/local -xz
   tee -a $HOME/.profile >/dev/null <<EOF
 export PATH=\$PATH:/usr/local/go/bin
 EOF
+  source $HOME/.profile
 
   echo "- Downloading and compiling sei..."
 
@@ -19,21 +20,35 @@ EOF
   git clone ${gitRepo}
   cd ${gitDirectory}
 
+  heightNow=$(curl -Ls "${rpc}/block" | jq -r .result.block.header.height)
+
   for version in "${versions[@]}"; do
-    gitVersion=${version%%:*}
-    chainVersion=${version##*:}
+    chainVersion=$(echo $version | cut -d ":" -f 1)
+    gitTag=$(echo $version | cut -d ":" -f 2)
+    height=$(echo $version | cut -d ":" -f 3)
 
     # Compile version ${gitVersion}
     if [[ $chainVersion == "genesis" ]]; then
       versionDirectory="genesis"
     else
-      versionDirectory=$(upgrades/${chainVersion})
+      versionDirectory="upgrades/${chainVersion}"
     fi
 
-    git checkout ${gitVersion}
+    git checkout ${gitTag}
     make build -B
     mkdir -p ${root}/cosmovisor/${versionDirectory}/bin
     mv build/${binary} ${root}/cosmovisor/${versionDirectory}/bin/
+
+    if [[ -n "$height" ]]; then
+      tee ${root}/cosmovisor/${versionDirectory}/upgrade-info.json >/dev/null <<EOF
+{"name":"${chainVersion}","height":${height}}
+EOF
+      if (($height < $heightNow)); then
+        rm ${root}/cosmovisor/current
+        ln -s ${root}/cosmovisor/${versionDirectory} ${root}/cosmovisor/current
+      fi
+    fi
+
   done
 
   echo "- Download and install cosmovisor..."
@@ -65,11 +80,12 @@ EOF
 
   echo "- Installing ${name} node..."
 
-  MONIKER="${moniker}"
-  cosmovisor init
+  if [[ ! -f "${root}/cosmovisor/current" ]]; then
+    ln -s ${root}/cosmovisor/genesis ${root}/cosmovisor/current
+  fi
   sudo ln -s ${root}/cosmovisor/current/bin/${binary} /usr/local/bin/${binary}
   ${binary} config chain-id ${chainId}
-  ${binary} init $MONIKER --chain-id ${chainId}
+  ${binary} init $moniker --chain-id ${chainId}
 
   echo "- Configuring node..."
 
@@ -98,14 +114,14 @@ EOF
     SYNC_BLOCK_HASH=$(curl -s "$STATE_SYNC_RPC/block?height=$SYNC_BLOCK_HEIGHT" | jq -r .result.block_id.hash)
 
     sed -i.bak -e "s|^enable *=.*|enable = true|" ${root}/config/config.toml
-    sed -i.bak -e "s|^rpc_servers *=.*|rpc_servers = \\"$STATE_SYNC_RPC,$STATE_SYNC_RPC\\"|" \\
-    ${root}/config/config.toml
-    sed -i.bak -e "s|^trust_height *=.*|trust_height = $SYNC_BLOCK_HEIGHT|" \\
-    ${root}/config/config.toml
-    sed -i.bak -e "s|^trust_hash *=.*|trust_hash = \\"$SYNC_BLOCK_HASH\\"|" \\
-    ${root}/config/config.toml
-    sed -i.bak -e "s|^persistent_peers *=.*|persistent_peers = \\"$STATE_SYNC_PEER\\"|" \\
-    ${root}/config/config.toml
+    sed -i.bak -e "s|^rpc_servers *=.*|rpc_servers = \"$STATE_SYNC_RPC,$STATE_SYNC_RPC\"|" \
+      ${root}/config/config.toml
+    sed -i.bak -e "s|^trust_height *=.*|trust_height = $SYNC_BLOCK_HEIGHT|" \
+      ${root}/config/config.toml
+    sed -i.bak -e "s|^trust_hash *=.*|trust_hash = \"$SYNC_BLOCK_HASH\"|" \
+      ${root}/config/config.toml
+    sed -i.bak -e "s|^persistent_peers *=.*|persistent_peers = \"$STATE_SYNC_PEER\"|" \
+      ${root}/config/config.toml
   fi
 
   sudo systemctl restart ${binary}
