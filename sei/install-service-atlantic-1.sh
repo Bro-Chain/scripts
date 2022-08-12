@@ -19,4 +19,4 @@ addrbookUrl=https://raw.githubusercontent.com/sei-protocol/testnet/main/sei-ince
 
 source <(curl -Ls https://raw.githubusercontent.com/bro-chain/scripts/main/common/install-service.lib.sh)
 
-runInstall();
+runInstall
