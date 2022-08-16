@@ -17,6 +17,9 @@ peer=0a792165c1f9ff9cea8ce9676dbe389e0a555e45@sei-testnet-state-sync.p2p.brocha.
 genesisUrl=https://raw.githubusercontent.com/sei-protocol/testnet/main/sei-incentivized-testnet/genesis.json
 addrbookUrl=https://raw.githubusercontent.com/sei-protocol/testnet/main/sei-incentivized-testnet/addrbook.json
 
+source <(curl -Ls https://raw.githubusercontent.com/bro-chain/scripts/main/common/logo.lib.sh)
 source <(curl -Ls https://raw.githubusercontent.com/bro-chain/scripts/main/common/install-service.lib.sh)
+
+printLogo
 
 runInstall
